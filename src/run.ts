@@ -3,7 +3,7 @@ import * as path from 'node:path'
 import * as core from '@actions/core'
 import * as glob from '@actions/glob'
 import { type KustomizeBuildOption, type KustomizeError, kustomizeBuild } from './build.js'
-import { formatErrors } from './comment.js'
+import { commentErrors, formatErrors } from './comment.js'
 import { copyExtraFiles } from './copy.js'
 import type { Context } from './github.js'
 import { globKustomization } from './glob.js'
@@ -14,6 +14,10 @@ type Inputs = {
   extraFiles: string
   baseDir: string
   ignoreKustomizeError: boolean
+  errorComment: boolean
+  errorCommentHeader: string
+  errorCommentFooter: string
+  token: string
 } & KustomizeBuildOption
 
 export const run = async (inputs: Inputs, context: Context): Promise<void> => {
@@ -57,6 +61,18 @@ export const run = async (inputs: Inputs, context: Context): Promise<void> => {
     core.summary.addEOL()
   }
   await core.summary.write()
+
+  if (errors.length > 0 && inputs.errorComment) {
+    await commentErrors(
+      prettyErrors,
+      {
+        header: inputs.errorCommentHeader,
+        footer: inputs.errorCommentFooter,
+        token: inputs.token,
+      },
+      context,
+    )
+  }
 
   if (errors.length > 0 && !inputs.ignoreKustomizeError) {
     throw new Error(`kustomize build finished with ${errors.length} errors`)
