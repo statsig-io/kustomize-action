@@ -1,9 +1,8 @@
+import * as path from 'node:path'
 import * as core from '@actions/core'
 import * as io from '@actions/io'
-import * as kustomize from './kustomize'
-import * as path from 'path'
-
-import { LoadRestrictor } from './run'
+import * as executor from './executor.js'
+import * as kustomize from './kustomize.js'
 
 export type Kustomization = {
   kustomizationDir: string
@@ -11,46 +10,36 @@ export type Kustomization = {
 }
 
 export type KustomizeBuildOption = kustomize.RetryOptions & {
+  kustomizeBuildArgs: string[]
   maxProcess: number
   writeIndividualFiles: boolean
-  showErrorAnnotation: boolean
-  loadRestrictor: LoadRestrictor
+}
+
+export type KustomizeResult = KustomizeSuccess | KustomizeError
+
+export type KustomizeSuccess = {
+  kustomization: Kustomization
+  success: true
 }
 
 export type KustomizeError = {
   kustomization: Kustomization
+  success: false
   stderr: string
 }
 
 export const kustomizeBuild = async (
   kustomizations: Kustomization[],
-  option: KustomizeBuildOption
-): Promise<KustomizeError[]> => {
+  option: KustomizeBuildOption,
+): Promise<KustomizeResult[]> => {
   if (option.maxProcess < 1) {
     throw new Error(`maxProcess must be a positive number but was ${option.maxProcess}`)
   }
-
-  const queue = kustomizations.concat()
-  const workers: Promise<KustomizeError[]>[] = []
-  for (let index = 0; index < option.maxProcess; index++) {
-    workers.push(worker(queue, option))
+  const tasks = []
+  for (const kustomization of kustomizations) {
+    tasks.push(async () => await build(kustomization, option))
   }
-  const errorsOfWorkers = await Promise.all(workers)
-  const errors = ([] as KustomizeError[]).concat(...errorsOfWorkers)
-  return errors
-}
-
-const worker = async (queue: Kustomization[], option: KustomizeBuildOption): Promise<KustomizeError[]> => {
-  for (const errors: KustomizeError[] = []; ; ) {
-    const task = queue.shift()
-    if (task === undefined) {
-      return errors // end of tasks
-    }
-    const result = await build(task, option)
-    if (result !== undefined) {
-      errors.push(result)
-    }
-  }
+  return await executor.execute(tasks, option.maxProcess)
 }
 
 const ansi = {
@@ -59,27 +48,21 @@ const ansi = {
   blue: '\u001b[34m',
 }
 
-const build = async (task: Kustomization, option: KustomizeBuildOption): Promise<KustomizeError | void> => {
+const build = async (task: Kustomization, option: KustomizeBuildOption): Promise<KustomizeResult> => {
   await io.mkdirP(task.outputDir)
 
-  let args
+  const args = ['build', task.kustomizationDir]
   if (option.writeIndividualFiles) {
-    args = ['build', task.kustomizationDir, '-o', task.outputDir, '--load-restrictor', option.loadRestrictor]
+    args.push('-o', task.outputDir)
   } else {
-    args = [
-      'build',
-      task.kustomizationDir,
-      '-o',
-      path.join(task.outputDir, 'generated.yaml'),
-      '--load-restrictor',
-      option.loadRestrictor,
-    ]
+    args.push('-o', path.join(task.outputDir, 'generated.yaml'))
   }
+  args.push(...option.kustomizeBuildArgs)
+
   const output = await kustomize.run(args, {
     ...option,
     silent: true, // prevent logs in parallel
   })
-
   if (output.exitCode === 0) {
     core.startGroup(task.kustomizationDir)
     core.info(`${ansi.blue}kustomize ${args.join(' ')}`)
@@ -90,22 +73,10 @@ const build = async (task: Kustomization, option: KustomizeBuildOption): Promise
       core.info(output.stderr)
     }
     core.endGroup()
-    return
-  }
-
-  const kustomizeError = {
-    stderr: output.stderr,
-    kustomization: task,
-  }
-  if (!option.showErrorAnnotation) {
-    core.info(`${ansi.blue}kustomize ${args.join(' ')}${ansi.reset} (exit ${output.exitCode})`)
-    if (output.stdout) {
-      core.info(output.stdout)
+    return {
+      kustomization: task,
+      success: true,
     }
-    if (output.stderr) {
-      core.info(output.stderr)
-    }
-    return kustomizeError
   }
 
   const relativeFile = path.join(path.relative('.', task.kustomizationDir), 'kustomization.yaml')
@@ -120,5 +91,9 @@ const build = async (task: Kustomization, option: KustomizeBuildOption): Promise
       title: `kustomize build error (exit ${output.exitCode})`,
     })
   }
-  return kustomizeError
+  return {
+    kustomization: task,
+    success: false,
+    stderr: output.stderr,
+  }
 }
