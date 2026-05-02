@@ -1,48 +1,61 @@
-import * as core from '@actions/core'
-import * as github from '@actions/github'
-import { GitHub } from '@actions/github/lib/utils'
-import * as path from 'path'
-import { KustomizeError } from './build'
-
-type Octokit = InstanceType<typeof GitHub>
+import type { KustomizeError } from './build.js'
+import type { Context } from './github.js'
 
 type CommentOptions = {
   header: string
   footer: string
+  token: string
 }
 
-export const commentErrors = async (octokit: Octokit, errors: KustomizeError[], o: CommentOptions): Promise<void> => {
-  if (github.context.payload.pull_request === undefined) {
+export const formatErrors = (errors: KustomizeError[], context: Context): string[] => {
+  return errors.map((error) => errorTemplate(error, context))
+}
+
+export const commentErrors = async (
+  prettyErrors: string[],
+  options: CommentOptions,
+  context: Context,
+): Promise<void> => {
+  const pullRequestNumber = await getPullRequestNumber(context)
+  if (pullRequestNumber === undefined) {
     return
   }
 
-  const body = [o.header, errors.map(errorTemplate).join('\n'), o.footer].join('\n')
-
-  const { data } = await octokit.rest.issues.createComment({
-    owner: github.context.repo.owner,
-    repo: github.context.repo.repo,
-    issue_number: github.context.payload.pull_request.number,
-    body,
-  })
-  core.info(`created a comment as ${data.html_url}`)
+  const body = [options.header, prettyErrors.join('\n'), options.footer].join('\n')
+  const response = await fetch(
+    `${context.apiUrl}/repos/${encodeURIComponent(context.repo.owner)}/${encodeURIComponent(
+      context.repo.repo,
+    )}/issues/${pullRequestNumber}/comments`,
+    {
+      method: 'POST',
+      headers: {
+        accept: 'application/vnd.github+json',
+        authorization: `Bearer ${options.token}`,
+        'content-type': 'application/json',
+        'x-github-api-version': '2022-11-28',
+      },
+      body: JSON.stringify({ body }),
+    },
+  )
+  if (!response.ok) {
+    throw new Error(`failed to create a comment: ${response.status} ${response.statusText}`)
+  }
 }
 
-export const summaryErrors = async (errors: KustomizeError[]) => {
-  core.summary.addRaw(`kustomize build finished with ${errors.length} error(s)`)
-  core.summary.addRaw(errors.map(errorTemplate).join('\n'))
-  await core.summary.write()
-}
-
-const errorTemplate = (e: KustomizeError): string => {
-  const relativeDir = path.relative('.', e.kustomization.kustomizationDir)
+const errorTemplate = (e: KustomizeError, context: Context): string => {
   return `
-### ${relativeDir}
-[kustomization.yaml](${kustomizationUrl(relativeDir)}) is invalid:
-<blockquote>${e.stderr.trim()}</blockquote>
+### ${e.kustomization.kustomizationDir}
+[kustomization.yaml](${kustomizationUrl(e.kustomization.kustomizationDir, context)}) error:
+\`\`\`
+${e.stderr.replaceAll('\n', '').replaceAll(':', ':\n')}
+\`\`\`
 `
 }
 
-const kustomizationUrl = (directory: string) => {
-  const { serverUrl, repo, sha } = github.context
-  return `${serverUrl}/${repo.owner}/${repo.repo}/blob/${sha}/${directory}/kustomization.yaml`
+const kustomizationUrl = (directory: string, context: Context) =>
+  `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/blob/${context.sha}/${directory}/kustomization.yaml`
+
+const getPullRequestNumber = async (context: Context): Promise<number | undefined> => {
+  const event = JSON.parse(await context.readEvent()) as { pull_request?: { number?: number } }
+  return event.pull_request?.number
 }
