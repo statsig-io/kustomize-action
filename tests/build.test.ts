@@ -3,7 +3,7 @@ import * as io from '@actions/io'
 
 import { Kustomization, kustomizeBuild } from '../src/build'
 
-import { LoadRestrictor } from '../src/run'
+import { LoadRestrictor } from '../src/load-restrictor'
 import { RetryOptions } from '../src/kustomize'
 
 jest.mock('@actions/core') // suppress logs
@@ -46,7 +46,7 @@ test('build a directory', async () => {
       showErrorAnnotation: true,
       loadRestrictor: LoadRestrictor.LoadRestrictionsRootOnly,
       ...noRetry,
-    }
+    },
   )
   expect(errors).toStrictEqual([])
   expect(mkdirPMock).toHaveBeenCalledWith('/output/development')
@@ -77,7 +77,7 @@ test('build a directory to individual files', async () => {
       showErrorAnnotation: true,
       loadRestrictor: LoadRestrictor.LoadRestrictionsRootOnly,
       ...noRetry,
-    }
+    },
   )
   expect(errors).toStrictEqual([])
   expect(mkdirPMock).toHaveBeenCalledWith('/output/development')
@@ -108,7 +108,7 @@ test('build a directory with an error', async () => {
       showErrorAnnotation: true,
       loadRestrictor: LoadRestrictor.LoadRestrictionsRootOnly,
       ...noRetry,
-    }
+    },
   )
   expect(errors.length).toBe(1)
   expect(mkdirPMock).toHaveBeenCalledWith('/output/development')
@@ -160,7 +160,7 @@ test.each`
         'LoadRestrictionsRootOnly',
       ])
     }
-  }
+  },
 )
 
 test.each`
@@ -208,7 +208,7 @@ test.each`
         'LoadRestrictionsRootOnly',
       ])
     }
-  }
+  },
 )
 
 test('build correctly passes the load restrictor argument', async () => {
@@ -226,7 +226,7 @@ test('build correctly passes the load restrictor argument', async () => {
       showErrorAnnotation: true,
       loadRestrictor: LoadRestrictor.LoadRestrictionsNone,
       ...noRetry,
-    }
+    },
   )
   expect(errors).toStrictEqual([])
   expect(mkdirPMock).toHaveBeenCalledWith('/output/development')

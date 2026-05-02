@@ -1,6 +1,7 @@
 import * as core from '@actions/core'
 
-import { LoadRestrictor, run } from './run'
+import { LoadRestrictor } from './load-restrictor'
+import { run } from './run'
 
 const main = async (): Promise<void> => {
   await run({

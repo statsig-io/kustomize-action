@@ -1,5 +1,4 @@
 import * as core from '@actions/core'
-import * as github from '@actions/github'
 import * as glob from '@actions/glob'
 import * as kustomize from './kustomize'
 import * as os from 'os'
@@ -10,11 +9,7 @@ import { copyExtraFiles } from './copy'
 import { promises as fs } from 'fs'
 import { globKustomization } from './glob'
 import { kustomizeBuild } from './build'
-
-export enum LoadRestrictor {
-  LoadRestrictionsNone = 'LoadRestrictionsNone',
-  LoadRestrictionsRootOnly = 'LoadRestrictionsRootOnly',
-}
+import { LoadRestrictor } from './load-restrictor'
 
 type Inputs = {
   kustomization: string
@@ -50,8 +45,11 @@ export const run = async (inputs: Inputs): Promise<void> => {
     if (errors.length > 0) {
       await summaryErrors(errors)
       if (inputs.errorComment) {
-        const octokit = github.getOctokit(inputs.token)
-        await commentErrors(octokit, errors, { header: inputs.errorCommentHeader, footer: inputs.errorCommentFooter })
+        await commentErrors(errors, {
+          header: inputs.errorCommentHeader,
+          footer: inputs.errorCommentFooter,
+          token: inputs.token,
+        })
       }
       throw new Error(`kustomize build finished with ${errors.length} error(s)`)
     }
