@@ -1,30 +1,44 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
-import { GitHub } from '@actions/github/lib/utils'
 import * as path from 'path'
 import { KustomizeError } from './build'
-
-type Octokit = InstanceType<typeof GitHub>
 
 type CommentOptions = {
   header: string
   footer: string
+  token: string
 }
 
-export const commentErrors = async (octokit: Octokit, errors: KustomizeError[], o: CommentOptions): Promise<void> => {
+type CreateCommentResponse = {
+  html_url?: string
+}
+
+export const commentErrors = async (errors: KustomizeError[], o: CommentOptions): Promise<void> => {
   if (github.context.payload.pull_request === undefined) {
     return
   }
 
   const body = [o.header, errors.map(errorTemplate).join('\n'), o.footer].join('\n')
-
-  const { data } = await octokit.rest.issues.createComment({
-    owner: github.context.repo.owner,
-    repo: github.context.repo.repo,
-    issue_number: github.context.payload.pull_request.number,
-    body,
+  const { owner, repo } = github.context.repo
+  const url = new URL(
+    `repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${github.context.payload.pull_request.number}/comments`,
+    `${github.context.apiUrl}/`,
+  )
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      accept: 'application/vnd.github+json',
+      authorization: `Bearer ${o.token}`,
+      'content-type': 'application/json',
+      'x-github-api-version': '2022-11-28',
+    },
+    body: JSON.stringify({ body }),
   })
-  core.info(`created a comment as ${data.html_url}`)
+  if (!response.ok) {
+    throw new Error(`failed to create a comment: ${response.status} ${response.statusText}`)
+  }
+  const data = (await response.json()) as CreateCommentResponse
+  core.info(`created a comment as ${data.html_url ?? '(unknown URL)'}`)
 }
 
 export const summaryErrors = async (errors: KustomizeError[]) => {
