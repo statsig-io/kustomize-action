@@ -1,48 +1,19 @@
-import * as core from '@actions/core'
-import * as github from '@actions/github'
-import { GitHub } from '@actions/github/lib/utils'
-import * as path from 'path'
-import { KustomizeError } from './build'
+import type { KustomizeError } from './build.js'
+import type { Context } from './github.js'
 
-type Octokit = InstanceType<typeof GitHub>
-
-type CommentOptions = {
-  header: string
-  footer: string
+export const formatErrors = (errors: KustomizeError[], context: Context): string[] => {
+  return errors.map((error) => errorTemplate(error, context))
 }
 
-export const commentErrors = async (octokit: Octokit, errors: KustomizeError[], o: CommentOptions): Promise<void> => {
-  if (github.context.payload.pull_request === undefined) {
-    return
-  }
-
-  const body = [o.header, errors.map(errorTemplate).join('\n'), o.footer].join('\n')
-
-  const { data } = await octokit.rest.issues.createComment({
-    owner: github.context.repo.owner,
-    repo: github.context.repo.repo,
-    issue_number: github.context.payload.pull_request.number,
-    body,
-  })
-  core.info(`created a comment as ${data.html_url}`)
-}
-
-export const summaryErrors = async (errors: KustomizeError[]) => {
-  core.summary.addRaw(`kustomize build finished with ${errors.length} error(s)`)
-  core.summary.addRaw(errors.map(errorTemplate).join('\n'))
-  await core.summary.write()
-}
-
-const errorTemplate = (e: KustomizeError): string => {
-  const relativeDir = path.relative('.', e.kustomization.kustomizationDir)
+const errorTemplate = (e: KustomizeError, context: Context): string => {
   return `
-### ${relativeDir}
-[kustomization.yaml](${kustomizationUrl(relativeDir)}) is invalid:
-<blockquote>${e.stderr.trim()}</blockquote>
+### ${e.kustomization.kustomizationDir}
+[kustomization.yaml](${kustomizationUrl(e.kustomization.kustomizationDir, context)}) error:
+\`\`\`
+${e.stderr.replaceAll('\n', '').replaceAll(':', ':\n')}
+\`\`\`
 `
 }
 
-const kustomizationUrl = (directory: string) => {
-  const { serverUrl, repo, sha } = github.context
-  return `${serverUrl}/${repo.owner}/${repo.repo}/blob/${sha}/${directory}/kustomization.yaml`
-}
+const kustomizationUrl = (directory: string, context: Context) =>
+  `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/blob/${context.sha}/${directory}/kustomization.yaml`
