@@ -1,11 +1,12 @@
 import * as io from '@actions/io'
-import { copyExtraFiles } from '../src/copy'
+import { expect, it, vi } from 'vitest'
+import { copyExtraFiles } from '../src/copy.js'
 
-jest.mock('@actions/io')
-const mkdirPMock = io.mkdirP as jest.Mock<Promise<void>>
-const cpMock = io.cp as jest.Mock<Promise<void>>
+vi.mock('@actions/io')
+const mkdirPMock = vi.mocked(io).mkdirP
+const cpMock = vi.mocked(io).cp
 
-test('run successfully', async () => {
+it('run successfully', async () => {
   mkdirPMock.mockResolvedValue()
   cpMock.mockResolvedValue()
 
@@ -15,6 +16,6 @@ test('run successfully', async () => {
   expect(mkdirPMock).toHaveBeenCalledWith(`/tmp/foo/fixtures/overlays/development`)
   expect(cpMock).toHaveBeenCalledWith(
     `${__dirname}/fixtures/overlays/development/metadata.yaml`,
-    `/tmp/foo/fixtures/overlays/development/metadata.yaml`
+    `/tmp/foo/fixtures/overlays/development/metadata.yaml`,
   )
 })
